@@ -1,0 +1,59 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+
+  - name: install pgdg repository key
+    apt_key: state=present url=https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+  - name: install pgdg package source
+    apt_repository: state=present repo='deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main' update_cache=yes
+
+  - name: install ca certificates
+    apt: state=present name=ca-certificates
+
+  - name: install postgresql
+    apt: state=present name=postgresql-9.5-citus
+
+  - name: register citus extension
+    shell: pg_conftool 9.5 main set shared_preload_libraries citus
+
+  - name: set listening address
+    shell: pg_conftool 9.5 main set listen_addresses *
+
+  - name: update network security for postgres servers 
+    copy: src=pg_hba.conf dest=/etc/postgresql/9.5/main/pg_hba.conf
+
+  - name: enable postgres service
+    service: enabled=yes name=postgresql state=restarted
+
+  - name: enable citus extension
+    become: yes
+    become_user: postgres
+    shell: psql -c "CREATE EXTENSION IF NOT EXISTS citus;"
+
+  - name: create test database
+    become: yes
+    become_user: postgres
+    shell: psql -c "{{ item }}"
+    with_items: 
+    - "DROP DATABASE IF EXISTS my_test;"
+    - "CREATE DATABASE my_test;"
+
+  - name: create test database
+    become: yes
+    become_user: postgres
+    shell: psql -d my_test -c "{{ item }}"
+    with_items: 
+    - "CREATE EXTENSION citus;"
+
+- hosts: machine1
+  become: yes
+  tasks:
+
+  - name: install master list of worker nodes 
+    copy: src=pg_worker_list.conf dest=/var/lib/postgresql/9.5/main/pg_worker_list.conf
+
+  - name: restart postgres master
+    service: name=postgresql state=restarted
+
